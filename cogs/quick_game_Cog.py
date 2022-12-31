@@ -5,7 +5,6 @@ import chain_responses
 import discord
 from discord import app_commands
 from discord.ext import commands
-import config
 import chain_responses
 
 class Quick(commands.Cog):

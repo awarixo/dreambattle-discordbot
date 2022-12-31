@@ -5,14 +5,12 @@ import asyncio
 import time
 import base64
 import sqlite3
-import config
 from PIL import Image
 from datetime import datetime
 from dotenv import load_dotenv
-
 load_dotenv(dotenv_path='/.env')
-TOKEN = config.DISCORD_TOKEN
-openai.api_key = config.OPENAI_API_KEY2
+TOKEN = os.getenv("DISCORD_TOKEN")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 #Connect to Database
 global conn
@@ -100,11 +98,11 @@ def gpt3_fight (f1,f2):
         print("FIGHT NOT FINISHED")
         fight_end = finished_fight[-500:]
         print(f"UNFINISHED FIGHT ENDING  : {fight_end}")
-        complete = "finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" and \" {} \".concluding with who won the fight and why \n Fight:\" {} \"- ".format(f1, f2, fight_end)
+        complete = "finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" and \" {} \".concluding with who won the fight and why \n Fight:\" {} \" ".format(f1, f2, fight_end)
         response2 = openai.Completion.create(
         model="text-davinci-003",
         prompt= complete,
-        temperature=0.2,
+        temperature=0.4,
         max_tokens=60,
         top_p=1,
         frequency_penalty=0.2,
