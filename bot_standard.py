@@ -3,20 +3,18 @@ import openai
 import asyncio
 import requests
 import discord
-import config
 from datetime import datetime
 from discord.ext import commands
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 
-os.chdir('c:/Users/HP/Desktop/School-coding/Python/AI-battlegame/Discord BattleBot/standard/')
-load_dotenv(find_dotenv())
+load_dotenv()
 
-TOKEN = config.DISCORD_TOKEN
-OPENAI_KEY = config.OPENAI_API_KEY2
+
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 print(OPENAI_KEY)
-# TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-# print(TOKEN)
-# openai.api_key = os.getenv("OPENAI_API_KEY2")
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+
 
 
 
