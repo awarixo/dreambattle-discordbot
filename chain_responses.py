@@ -102,7 +102,7 @@ def gpt3_fight (f1,f2):
         response2 = openai.Completion.create(
         model="text-davinci-003",
         prompt= complete,
-        temperature=0.4,
+        temperature=0.2,
         max_tokens=60,
         top_p=1,
         frequency_penalty=0.2,
@@ -116,7 +116,7 @@ def gpt3_fight (f1,f2):
         #     content2 = content2[:2].join
         #     print("FIXED!")
         #     print (content2)
-        full_fight = finished_fight + '. ' + content2
+        full_fight = finished_fight + ' ' + content2
         return full_fight
 
 
