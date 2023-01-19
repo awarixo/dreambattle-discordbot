@@ -28,8 +28,6 @@ def store_image_to_DB(username,time,date,fighter,image_data):        #HOW DO I C
     fighter TEXT,
     image_data BLOP)""")
 
-    print("table created")
-
     username = str(username)
     cursor.execute("""
     INSERT INTO dreambattle_chain_fighters(username,time,date,fighter,image_data) VALUES(?,?,?,?,?)""", (username,time,date,fighter,image_data))
@@ -52,20 +50,39 @@ async def image(player_number,username,sentence):
     
     #save base 64 into png file
     if player_number == 1:
-        with open('p1.jpg', 'wb') as handler:
+        with open('quick_p1.jpg', 'wb') as handler:
             handler.write(base64.urlsafe_b64decode(b64))
-        im = Image.open('p1.jpg') 
+        im = Image.open('quick_p1.jpg') 
         im.show()
         #read png file and save into DB
-        with open('p1.jpg', 'rb' ) as handler:
+        with open('quick_p1.jpg', 'rb' ) as handler:
              img_binary = handler.read()
-    else:
-        with open('p2.jpg', 'wb') as handler:
+
+    elif player_number == 2:
+        with open('quick_p2.jpg', 'wb') as handler:
             handler.write(base64.urlsafe_b64decode(b64))
-        im = Image.open('p2.jpg') 
+        im = Image.open('quick_p2.jpg') 
         im.show()
         #read png file and save into DB
-        with open('p2.jpg', 'rb' ) as handler:
+        with open('quick_p2.jpg', 'rb' ) as handler:
+             img_binary = handler.read()
+
+    elif player_number == 3:
+        with open('chain_p1.jpg', 'wb') as handler:
+            handler.write(base64.urlsafe_b64decode(b64))
+        im = Image.open('chain_p1.jpg') 
+        im.show()
+        #read png file and save into DB
+        with open('chain_p1.jpg', 'rb' ) as handler:
+             img_binary = handler.read()
+    
+    elif player_number == 4:
+        with open('chain_p2.jpg', 'wb') as handler:
+            handler.write(base64.urlsafe_b64decode(b64))
+        im = Image.open('chain_p2.jpg') 
+        im.show()
+        #read png file and save into DB
+        with open('chain_p2.jpg', 'rb' ) as handler:
              img_binary = handler.read()
 
     now = datetime.today()
@@ -123,7 +140,7 @@ def gpt3_fight (f1,f2):
 
 #GPT3 Fight decider function
 async def gpt3_decider(sentence, f1, f2):
-    fight_winner = "from this passage, \"{}\", tell me which option won the fight , Option 1 \"{}\" or Option 2 \"{}\" :".format(sentence, f1, f2)
+    fight_winner = "from this passage, \"{}\", tell me which option won the fight , Option 1: \"{}\" \n or Option 2: \"{}\" :".format(sentence, f1, f2)
     response = openai.Completion.create(
         model="text-davinci-003",
         prompt= fight_winner,
@@ -196,7 +213,7 @@ async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
 
 
 async def gpt3_fight_completed(sentence):
-        fight_winner = "from this passage, \"{}\", tell me if the fight is completed or ongoing, Option 1 \"completed\" or Option 2 \"ongoing\":".format(sentence)
+        fight_winner = "from this passage, \"{}\", tell me if the fight is completed or ongoing, Option 1 \"ongoing\" or Option 2 \"completed\":".format(sentence)
         response = openai.Completion.create(
             model="text-davinci-003",
             prompt= fight_winner,
@@ -258,8 +275,8 @@ async def chain_message_handler(user1,user2,p1,p2) -> str:
         final2 = p2 +", 4k,highly detailed octane render, by Alex Ross"
         try:
             print("Now working on images")
-            img1_path = await image(1,user1,final1)
-            img2_path = await image(2,user2,final2)
+            img1_path = await image(3,user1,final1)
+            img2_path = await image(4,user2,final2)
             conn.commit()
             cursor.close()
             conn.close()

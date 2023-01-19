@@ -1,4 +1,6 @@
 __pycache__
+/env
 .env
+.dockerignore
 DreamBattle_Beta_Chain.db
 DreamBattle_Beta.db

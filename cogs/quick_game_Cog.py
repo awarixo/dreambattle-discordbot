@@ -51,9 +51,9 @@ class Quick(commands.Cog):
                 await interaction.channel.send("WARNING: NO NSFW OR PUBLIC FIGURES ALLOWED")
                 return
             await interaction.channel.send(f"`PLAYER 1:{classic_player1}`")
-            await interaction.channel.send(file=discord.File('p1.jpg'))
+            await interaction.channel.send(file=discord.File('quick_p1.jpg'))
             await interaction.channel.send(f"`PLAYER 2:{classic_player2}`")
-            await interaction.channel.send(file=discord.File('p2.jpg'))
+            await interaction.channel.send(file=discord.File('quick_p2.jpg'))
             await interaction.channel.send(classic_result)
             classic_player1 = '0'
         except Exception as e:
