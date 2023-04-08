@@ -1,5 +1,9 @@
-__pycache__
-/env
+/__pycache__
+/dreamenv
+/.vscode
+battlebot.log
+infos.log
+dreambattlebeta-firebase-adminsdk-3qx63-979ca29af4.json
 .env
 .dockerignore
 DreamBattle_Beta_Chain.db
