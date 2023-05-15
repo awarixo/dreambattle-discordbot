@@ -5,8 +5,11 @@ import re
 import chain_responses
 import discord
 import loggerSettings
+import math
 from discord import app_commands
 from discord.ext import commands
+from discord.ui import Button, View
+from StringProgressBar import progressBar
 
 # logging.basicConfig(filename='battlebot.log',format='%(asctime)s %(levelname)s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
 logger = loggerSettings.logging.getLogger("discord")
@@ -23,11 +26,6 @@ class Chain(commands.Cog):
         await default_channel.send("Welcome to the DreamBattle Beta! 🤠 Create your own fighter using AI and watch as it comes to life to battle other fighters in epic duels. Imagine and describe, let the AI do the rest \n\nUse /help to get started")
 
 
-    # global chain_counter
-    # global fight_started
-    # fight_started = False
-    # chain_counter = 0 #Check if this is the first chain or 2nd chain
-
     #Help function
     @app_commands.command(name="help", description="How to play")
     async def help(self, interaction: discord.Interaction):
@@ -35,23 +33,208 @@ class Chain(commands.Cog):
         embed = discord.Embed(title="DreamBattle Gamemodes", description=guide, color=discord.Color.blue())
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
-        
+
+#--------------------------------Button class for stats----------------------------------------------
+    class Myview(discord.ui.View):
+        def __init__(self):
+            super().__init__()
+            self.value = None
+            self.page = 1
+
+        @discord.ui.button(label="Chainbattle Fighters")
+        async def button_one(self, interaction: discord.Interaction, button: discord.ui.Button):
+            embed = discord.Embed(title=f"{interaction.user}'s Chainbattle Fighters", color=discord.Color.dark_teal())
+            username = re.sub(r'\W+', '-', str(interaction.user))
+            gamemode="Chain battle"
+            chain_list = await chain_responses.get_player_list(username,gamemode)
+            fighters_str = ""
+
+            for i, fighter in enumerate(chain_list[(self.page-1)*10:self.page*10], start=(self.page-1)*10+1):
+                fighters_str += f"`{i}. {fighter}`\n"
+            embed.add_field(name="Chainbattle Fighters", value=fighters_str)
+
+            first_page = discord.ui.Button(label="<<", disabled=self.page == 1)
+            prev_page = discord.ui.Button(label="<", disabled=self.page == 1)
+            next_page= discord.ui.Button(label=">", disabled=self.page*10 >= len(chain_list))
+            last_page = discord.ui.Button(label=">>", disabled=self.page*10 >= len(chain_list))
+            buttons = [first_page, prev_page, next_page, last_page]
+
+            # Use the outer class name to instantiate the nested class
+            view = self.fighterview(page=1, myview=self, fighter_list="chain")
+            for button in buttons:
+                view.add_item(button)
+
+            # Assign callbacks before sending the message
+            prev_page.callback = view.prev_page_callback
+            next_page.callback = view.next_page_callback
+            first_page.callback = view.first_page_callback
+            last_page.callback = view.last_page_callback
+            self.message = await interaction.response.edit_message(embed=embed, view=view)
+
+
+        @discord.ui.button(label="Quickgame Fighters")
+        async def button_two(self, interaction: discord.Interaction, button: discord.ui.Button):
+            embed = discord.Embed(title=f"{interaction.user}'s Quickgame Fighters", color=discord.Color.dark_teal())
+            username = re.sub(r'\W+', '-', str(interaction.user))
+            gamemode="Quick game"
+            quick_list = await chain_responses.get_player_list(username, gamemode)
+            fighters_str = ""
+            for i, fighter in enumerate(quick_list[(self.page-1)*10:self.page*10], start=(self.page-1)*10+1):
+                fighters_str += f"`{i}. {fighter}`\n"
+            embed.add_field(name="Quickgame Fighters", value=fighters_str)
+
+            first_page = discord.ui.Button(label="<<", disabled=self.page == 1)
+            prev_page = discord.ui.Button(label="<", disabled=self.page == 1)
+            next_page= discord.ui.Button(label=">", disabled=self.page*10 >= len(quick_list))
+            last_page = discord.ui.Button(label=">>", disabled=self.page*10 >= len(quick_list))
+            buttons = [first_page, prev_page, next_page, last_page]
+
+            # Use the outer class name to instantiate the nested class
+            view = self.fighterview(page=1, myview=self, fighter_list="quick")
+            for button in buttons:
+                view.add_item(button)
+
+            # Assign callbacks before sending the message
+            prev_page.callback = view.prev_page_callback
+            next_page.callback = view.next_page_callback
+            first_page.callback = view.first_page_callback
+            last_page.callback = view.last_page_callback
+            self.message = await interaction.response.edit_message(embed=embed, view=view)
+
+
+################################## Define the nested class inside the outer class #########################################
+        class fighterview(discord.ui.View):
+            def __init__(self, page, myview, fighter_list):
+                super().__init__()
+                self.value = None
+                self.page = page
+                self.myview = myview
+                self.list = fighter_list
+
+
+            async def update_embed(self, interaction: discord.Interaction):
+                username = re.sub(r'\W+', '-', str(interaction.user))
+                if self.list == "quick":
+                    title= "Quickgame"
+                    gamemode="Quick game"
+                else:
+                    title= "Chainbattle"
+                    gamemode="Chain battle"
+                fighter_list = await chain_responses.get_player_list(username,gamemode)
+
+                embed = discord.Embed(title=f"{interaction.user}'s {title} Fighters", color=discord.Color.dark_teal())
+                fighters_str = ""
+                print(f"fighter_list {fighter_list}")
+                for i, fighter in enumerate(fighter_list[(self.page-1)*10:self.page*10], start=(self.page-1)*10+1):
+                    fighters_str += f"`{i}. {fighter}`\n"
+                embed.add_field(name=f"{title} Fighters", value=fighters_str)
+                print(f"page = {self.page}")
+
+                # Update the button states based on the current page
+                self.children[0].disabled = self.page == 1 # first page button
+                self.children[1].disabled = self.page == 1 # prev page button
+                self.children[2].disabled = self.page*10 >= len(fighter_list) # next page button
+                self.children[3].disabled = self.page*10 >= len(fighter_list) # last page button
+                
+                self.myview.message = await interaction.response.edit_message(embed=embed, view=self)
+
+                # await self.myview.message.edit(embed=embed, view=self)
+                # await self.myview.interaction.response.edit_message(embed=embed, view=self)
+
+            async def prev_page_callback(self, interaction: discord.Interaction):
+                    self.page -= 1
+                    await self.update_embed(interaction)
+
+            async def next_page_callback(self, interaction: discord.Interaction):
+                    self.page += 1
+                    await self.update_embed(interaction)
+
+            async def first_page_callback(self, interaction: discord.Interaction):
+                    self.page = 1
+                    await self.update_embed(interaction)
+
+            async def last_page_callback(self, interaction: discord.Interaction):
+                    username = re.sub(r'\W+', '-', str(interaction.user))
+                    if self.list == "quick":
+                        title= "Quickgame"
+                        gamemode="Quick game"
+                    else:
+                        title= "Chainbattle"
+                        gamemode="Chain battle"
+                    fighter_list = await chain_responses.get_player_list(username,gamemode)
+                    self.page = (len(fighter_list) - 1) // 10 + 1
+                    await self.update_embed(interaction)
+   
+
+
+
+
+    @app_commands.command(name="stats", description="Player information")
+    async def info(self, interaction: discord.Interaction):
+
+        username = re.sub(r'\W+', '-', str(interaction.user))
+        guild = self.bot.get_guild(interaction.guild_id)
+        server = f"{guild}-{guild.id}"
+        # Retrieve user's stats from your game database
+        try:
+            user_experience, user_level, user_token, user_status = await chain_responses.get_user_stats(username)
+        except Exception as e:
+            print(e)
+            await chain_responses.set_new_player(username, server)
+            user_experience, user_level, user_token, user_status = await chain_responses.get_user_stats(username)
+
+        level_counter, player_xp, new_level_xp = chain_responses.add_player_level(user_experience)
+        # draw the progress bar to given location, width, progress and color
+        # d = await chain_responses.drawProgressBar(0, 0, 100, 25, (player_xp/new_level_xp))
+        # img_file =discord.File("progressbar.jpg", filename="progressbar.jpg")
+        bardata = progressBar.filledBar(new_level_xp, player_xp, size=10)
+        print(player_xp,new_level_xp,bardata)
+        # Create an embedded message with user's stats
+        embed = discord.Embed(title=f"Dreambattle {username} stats", description="Player Info", color=discord.Color.dark_teal())
+        embed.set_thumbnail(url=interaction.user.avatar)
+        embed.add_field(name=f"Level: {user_level}", value=f"XP: {player_xp}/{new_level_xp}\n{bardata[0]}", inline= False)
+        embed.set_image(url="attachment://progressbar.jpg")
+        #embed.add_field(name="ChainBattle Win rate", value=f"{user_level}", inline= True)
+        embed.add_field(name="Status", value=f"{user_status}", inline= True)
+        embed.add_field(name="Tokens Remaining", value=f"{user_token}", inline= True)
+        view = self.Myview()
+
+
+        # Send embedded message back to user
+        await interaction.response.send_message( embed=embed,view=view, ephemeral=True)
+        return
+
     #1ST ROUND CREATE PLAYER 1
     @app_commands.command(name="controlp1", description="Control player 1")
     @app_commands.describe(fighter = "Create your fighter")
     async def controlp1(self, interaction: discord.Interaction, *, fighter:str):
-        control_player1 = re.sub('[^a-zA-z0-9]', ' ',fighter)
-        p1_username = str(interaction.user)
+        # if not interaction.user.verified:
+        #     await interaction.response.send_message("VERIFY YOUR DISCORD ACCOUNT")
+        #     return
+
+        control_player1 = re.sub(r'\W+', ' ',fighter)
+        p1_username = re.sub(r'\W+', '-', str(interaction.user))
         p1_guild = self.bot.get_guild(interaction.guild_id)
         p1_server = f"{p1_guild}-{p1_guild.id}"
-        
-        gamemode = "Chain battle" 
+        gamemode = "Chain battle"
         fight_started = await chain_responses.check_chain_battle_start(p1_server)
 
         if fight_started == True:
             await interaction.response.send_message("CHAIN BATTLE ONGOING. USE /ACTION TO INPUT ACTIONS")
             return
-        
+
+        ## CHECK IF PLAYER IS IN USERS NODE, IF NOT ADD PLAYER ##
+        users_list = await chain_responses.get_users_list()
+        player_registered = await chain_responses.check_player_exist(p1_username,users_list)
+        if player_registered == False:
+            await chain_responses.set_new_player(p1_username,p1_server)
+        else:
+            token_check = await chain_responses.check_user_tokens(p1_username,users_list)
+            if token_check < 1:
+                await interaction.response.send_message("You have exhausted your Dreambattle Tokens, use the /subscribe command to reload your account", ephemeral=True)
+                return
+        ############## IF PLAYER IS IN USERS NODE, CHECK IF USER HAS TOKEN>0, IF NOT SEND ERROR "TOKENS EXHAUSTED" #############
+        # await chain_responses.update_fighters_timestamps(p1_username, gamemode)
         await chain_responses.store_p1_to_DB(p1_server, p1_username, gamemode, control_player1)
         logger.info(f'CONTROL GAMEMODE P1: {p1_username} , {control_player1}')
         await interaction.response.send_message("CONTROL GAMEMODE STARTED. WAITING FOR PLAYER 2")
@@ -64,30 +247,48 @@ class Chain(commands.Cog):
         gamemode = "Chain battle"
         guild = self.bot.get_guild(interaction.guild_id)
         server = f"{guild}-{guild.id}"
-        # logger.info(f"SERVER:     {server}")
+        control_player2 = re.sub(r'\W+', ' ',fighter)
+        p2_username = re.sub(r'\W+', '-', str(interaction.user))
 
         fight_started = await chain_responses.check_chain_battle_start(server)
         # logger.info(f"FIGHT STARTED:      {fight_started}")
         if fight_started == True:
             await interaction.response.send_message("CHAIN BATTLE ONGOING. USE /ACTION TO INPUT ACTIONS")
             return
-        
+
         read_status = await chain_responses.check_db_read_status(server,gamemode)
         # logger.info(f"READ STATUS:    {read_status}")
         if read_status == False:
             await interaction.response.send_message("CREATE PLAYER 1 FIRST")
             return
+        #then get p1 info from the server
+        p1_username, control_player1 = await chain_responses.get_p1_from_DB(server, gamemode)
 
-        control_player2 = re.sub('[^a-zA-z0-9]', ' ',fighter)
-        p2_username = str(interaction.user)
+        ## CHECK IF PLAYER IS IN USERS NODE, IF NOT ADD PLAYER ##
+        users_list = await chain_responses.get_users_list()
+        player_registered = await chain_responses.check_player_exist(p2_username,users_list)
+        if player_registered == False:
+            await chain_responses.set_new_player(p2_username,server)
+        else:
+
+            token_check = await chain_responses.check_user_tokens(p2_username,users_list)
+            if p1_username == p2_username:
+                if token_check < 2:
+                    await interaction.response.send_message("You have exhausted your Dreambattle Tokens, use the /subscribe command to reload your account", ephemeral=True)
+                    return
+            else:
+                if token_check < 1:
+                    await interaction.response.send_message("You have exhausted your Dreambattle Tokens, use the /subscribe command to reload your account", ephemeral=True)
+                    return
+        ############## IF PLAYER IS IN USERS NODE, CHECK IF USER HAS TOKEN>0, IF NOT SEND ERROR "TOKENS EXHAUSTED" #############
+
         logger.info(f'CONTROL GAMEMODE STARTED P2: {p2_username} , {control_player2}')
         await interaction.response.send_message(f"CREATING FIGHTERS")
         fight_started = True
         await chain_responses.set_chain_battle_start(server, fight_started)
 
-       #then get p1 info from the server by sorting for the most recent record
-        p1_username, control_player1 = await chain_responses.get_p1_from_DB(server, gamemode) 
-        
+
+
         # logger.info(f"CONTROL PLAYER 1:{p1_username}, {control_player1}")
 
         try:
@@ -115,7 +316,11 @@ class Chain(commands.Cog):
                 await interaction.channel.send(e)
         await chain_responses.close_db_read_status(server,gamemode)
 
-        
+        #### Remove one player from each player token
+        await chain_responses.deduct_token(p1_username)
+        await chain_responses.deduct_token(p2_username)
+
+
 
     #2ND ROUND PLAYER 1 ACTION1
     @app_commands.command(name="actionp1", description="player 1 action")
@@ -123,8 +328,8 @@ class Chain(commands.Cog):
     async def actionp1(self, interaction:discord.Interaction, *, action:str):
         gamemode = "Chain battle"
         p1_guild = self.bot.get_guild(interaction.guild_id)
-        p1_server = f"{p1_guild}-{p1_guild.id}"        
-        
+        p1_server = f"{p1_guild}-{p1_guild.id}"
+
         chain_battle_start = await chain_responses.check_chain_battle_start(p1_server)
 
         if chain_battle_start == False:
@@ -145,7 +350,7 @@ class Chain(commands.Cog):
                 await chain_responses.input_action(chain_counter, action_player1, p1_server, gamemode, p1_played)
                 logger.info("PLAYER 1 ACTION1 ADDED TO DB")
                 await interaction.response.send_message("ACTION REGISTERED. WAITING FOR PLAYER 2", delete_after=0)
-                embed = discord.Embed(title="Player 1 Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
+                embed = discord.Embed(title=f"Player 1 {interaction.user} Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
                 await interaction.channel.send(embed=embed)
 
             elif chain_counter == 1 and p1_played==True: #Check if this is the first chain or 2nd chain
@@ -156,27 +361,20 @@ class Chain(commands.Cog):
                 await chain_responses.input_action(chain_counter, action_player1, p1_server, gamemode, p1_played)
                 logger.info("PLAYER 1 ACTION1 ADDED TO DB")
                 response = await interaction.response.send_message("ACTION REGISTERED. WAITING FOR PLAYER 2", delete_after=0)
-                embed = discord.Embed(title="Player 1 Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
+                embed = discord.Embed(title=f"Player 1 {interaction.user} Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
                 await interaction.channel.send(embed=embed)
 
-            # elif chain_counter == 1: #Check if this is the first chain or 2nd chain
-            #     action_player1  = action
-            #     logger.info("FIRST CHAIN P1 REGISTERED. ADDING TO DB")
-            #     chain_counter = 1
-            #     await chain_responses.input_action(chain_counter, action_player1, p1_server, gamemode)
-            #     logger.info("PLAYER 1 ACTION1 ADDED TO DB")
-            #     await interaction.response.send_message("ACTION REGISTERED. WAITING FOR PLAYER 2")
 
             #3RD ROUND PLAYER 1 ACTION2
             elif chain_counter == 1 and p1_played==False:
                 logger.info(f"CHAIN COUNTER = {chain_counter} ")
                 second_action_player1  = action
                 logger.info("SECOND CHAIN P1 REGISTERED. ADDING TO DB")
-                chain_counter = 2  
+                chain_counter = 2
                 p1_played = True
                 await chain_responses.input_action(chain_counter, second_action_player1, p1_server, gamemode, p1_played)
                 response = await interaction.response.send_message("SECOND ACTION REGISTERED. WAITING FOR PLAYER 2", delete_after=0)
-                embed = discord.Embed(title="Player 1 Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
+                embed = discord.Embed(title=f"Player 1 {interaction.user} Action Registered", description="Waiting for Player 2", color=discord.Color.blue())
                 await interaction.channel.send(embed=embed)
 
 
@@ -202,6 +400,7 @@ class Chain(commands.Cog):
             control_player1 = Player1_data['Fighter']
             action_player1 = Player1_data['P1_action']
             chain_result = Player1_data['fight_output']
+            P1_username = Player1_data['username']
 
             # logger.info("Check if action 1 exists: ", action_player1) #Check if action 1 exists
 
@@ -213,9 +412,9 @@ class Chain(commands.Cog):
                 action_player2 = action
                 logger.info("FIRST CHAIN P2 REGISTERED")
                 try:
-                    logger.info("CHAIN BATTLE Player 1",control_player1,action_player1) #Check if player 1 exists
+                    logger.info(f"CHAIN BATTLE Player 1 {control_player1},{action_player1}") #Check if player 1 exists
                     response = await interaction.response.send_message("ACTION REGISTERED.", delete_after=0)
-                    embed = discord.Embed(title="Player 2 Action Registered", description="Creating chain battle", color=discord.Color.blue())
+                    embed = discord.Embed(title=f"Player 2 {interaction.user} Action Registered", description="Creating chain battle", color=discord.Color.blue())
                     await interaction.channel.send(embed=embed)
                     p1_played = False
                     await chain_responses.set_p1_played(p1_played,server,gamemode)
@@ -228,6 +427,7 @@ class Chain(commands.Cog):
                     player2_data = await chain_responses.get_control_p2(server, gamemode)
                     # logger.info(player2_data)
                     control_player2 = player2_data["Fighter"]
+                    P2_username = player2_data["username"]
 
                     logger.info(f"Making 2nd round:    control_player1: {control_player1}    control_player2: {control_player2}")
                     chain_result2 = await chain_responses.gpt3_chain_fight2(control_player1,control_player2,action_player1,action_player2,chain_result)
@@ -242,7 +442,7 @@ class Chain(commands.Cog):
                 #Check to see if chain battle is completed
                     chain_result_check = chain_result2
                     chain_result_list = chain_result_check.split('.')
-                    chain_result_list = chain_result_list[-4:]
+                    chain_result_list = chain_result_list[-5:]
                     chain_check_sentence = '.'.join(chain_result_list)
                     # logger.info("CHAIN CHECK SENTENCE\n",chain_check_sentence)
                     chain_check = await chain_responses.gpt3_fight_completed(chain_check_sentence)
@@ -250,7 +450,7 @@ class Chain(commands.Cog):
                     if "2" in chain_check or "completed" in chain_check:
                         logger.info(f'CHAIN COMPLETED SUCCESSFULLY = {chain_check}')
                         await interaction.channel.send("**CHAIN BATTLE COMPLETED**")
-                        
+
                         fight_started = False
                         # Decide fight winner
                         control_player1_text = re.sub('[^a-zA-Z ]+',' ', control_player1)
@@ -260,10 +460,15 @@ class Chain(commands.Cog):
                         if '2' in fight_decider:
                             logger.info(f'Player 2 won the fight')
                             await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
+                            await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+
                         else:
                             logger.info(f'Player 1 won the fight')
                             await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-                        
+                            await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+
+
+
                         await chain_responses.set_chain_battle_start(server, fight_started)
                         await chain_responses.set_chain_counter(0,server,gamemode)
 
@@ -280,17 +485,17 @@ class Chain(commands.Cog):
                 logger.info("round 2")
                 second_action_player2 = action
                 player2_data = await chain_responses.get_control_p2(server, gamemode)
-                # logger.info(player2_data)
                 control_player2 = player2_data["Fighter"]
+                P2_username = player2_data["username"]
                 logger.info(f"Making 2nd round:    control_player1: {control_player1}    control_player2: {control_player2}")
-                    
+
                 # logger.info(control_player2,second_action_player2 )
                 logger.info("FIRST CHAIN P2 REGISTERED")
                 response = await interaction.response.send_message("PLAYER 2 SECOND ACTION REGISTERED", delete_after=0)
-                embed = discord.Embed(title="Player 2 Action Registered", description="Creating chain battle", color=discord.Color.blue())
+                embed = discord.Embed(title=f"Player 2 {interaction.user} Action Registered", description="Creating chain battle", color=discord.Color.blue())
                 await interaction.channel.send(embed=embed)
                 try:
-                    logger.info("Check if player 1 second action exists: ",control_player1,action_player1) #Check if player 1 exists
+                    logger.info(f"Check if player 1 second action exists: {control_player1}, {action_player1}") #Check if player 1 exists
                 except Exception as e:
                     await interaction.channel.send("WAITING FOR PLAYER 1")
                     return
@@ -321,9 +526,12 @@ class Chain(commands.Cog):
                     if '2' in fight_decider2:
                         logger.info(f'Player 2 won the fight')
                         await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
+                        await chain_responses.add_player_experience(P2_username,P1_username,20,10)
                     else:
                         logger.info(f'Player 1 won the fight')
                         await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
+                        await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+
                     await chain_responses.set_chain_counter(0,server,gamemode)
                     await chain_responses.set_chain_battle_start(server, fight_started)
 
@@ -368,4 +576,3 @@ class Chain(commands.Cog):
 async def setup(bot):       #Command to add cog to bot
     logger.info("Adding Chainbattle cog to bot")
     await bot.add_cog(Chain(bot))
-

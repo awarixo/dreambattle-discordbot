@@ -11,7 +11,8 @@ import requests
 import loggerSettings
 import concurrent.futures
 from threading import Thread
-from PIL import Image
+from PIL import Image, ImageFont, ImageDraw, ImageEnhance
+
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -65,7 +66,7 @@ firebaseConfig = {
   "messagingSenderId": "1019723627495",
   "appId": "1:1019723627495:web:f4cd87c1a5b5f4095fdb42",
   "measurementId": "G-3NH8RLQV7V",
-  "serviceAccount": "./dreambattlebeta-firebase-adminsdk-3qx63-979ca29af4.json",
+  "serviceAccount": "dreambattlebeta-firebase-adminsdk-3qx63-979ca29af4.json",
 }
 
 #Connect to Database
@@ -143,10 +144,186 @@ async def get_control_p2(server,gamemode):
 
 async def set_control_p2(server,username,gamemode,fighter):
     logger.info("Storing player 2 in DB")
-    username = str(re.sub(r"#", "-", username))
+    # username = str(re.sub(r"#", "-", username))
     data = {"username":f"{username}","Fighter":f"{fighter}", "Gamemode":f"{gamemode}"}
-    database.child("servers").child(server).child(gamemode).child("Player 2").update(data,)
+    database.child("servers").child(server).child(gamemode).child("Player 2").update(data)
     return
+
+
+#########################Adding Timestamps#####################
+
+# async def update_fighters_timestamps(username, gamemode):
+#     fighters_data = database.child("fighters").child(username).child(gamemode).get().val()
+#     print("updating timestamps")
+#     if fighters_data is None:
+#         print("No data found for fighters")
+#         return
+    
+#     for fighter_id, fighter_data in fighters_data.items():
+#         # Get the date and time strings from the fighter data
+#         date_str = fighter_data.get("Date")
+#         time_str = fighter_data.get("Time")
+        
+#         # If either of the date or time strings are missing, skip this fighter
+#         if not date_str or not time_str:
+#             print(f"Skipping fighter {fighter_id} due to missing date or time data")
+#             continue
+        
+#         # Parse the date and time strings into datetime objects
+#         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+#         time_obj = datetime.strptime(time_str, "%H:%M:%S")
+        
+#         # Combine the date and time objects into a single datetime object
+#         timestamp_obj = datetime.combine(date_obj.date(), time_obj.time())
+        
+#         # Convert the timestamp datetime object into a string for storage in the database
+#         timestamp_str = timestamp_obj.isoformat()
+        
+#         # Update the fighter data in the database with the new timestamp value
+#         database.child("fighters").child(username).child(gamemode).child(fighter_id).update({"timestamp": timestamp_str})
+        
+#         print(f"Updated fighter {fighter_id} with timestamp {timestamp_str}")
+
+#----------------------LEVELING SYSTEM--------------------------------------
+async def add_player_experience(winner,loser,xp1,xp2):
+    winner_data = dict(database.child("users").child(winner).get().val().items())
+    loser_data = dict(database.child("users").child(loser).get().val().items())
+
+    winner_xp = winner_data ["experience"]
+    loser_xp = loser_data ["experience"]
+
+    winner_xp += xp1
+    winner_level_counter, winner_player_xp, winner_new_level_xp  = add_player_level(winner_xp)
+    loser_xp += xp2
+    loser_level_counter, loser_player_xp, loser_new_level_xp  = add_player_level(loser_xp)
+
+    loser_updated = {"experience": loser_xp, "level": loser_level_counter}
+    winner_updated = {"experience": winner_xp, "level": winner_level_counter}
+    database.child("users").child(loser).update(loser_updated)
+    database.child("users").child(winner).update(winner_updated)
+
+
+
+def add_player_level(player_xp):
+    #Level requirements increase by 25XP. lvl1 = 50. lvl2 = 75. lvl3 = 100
+    level_counter = 0
+    new_level_xp = 50
+    first_level_xp = 50
+    while player_xp >= new_level_xp:
+        print(f"Level: {level_counter}.playerXP: {player_xp}.required next level xp: {new_level_xp}")
+        player_xp -= new_level_xp
+        level_counter +=1
+        new_level_xp = first_level_xp + (level_counter)*25
+    print(f"Final Level: {level_counter}.playerXP: {player_xp}.required next level xp: {new_level_xp}")
+
+    return level_counter, player_xp, new_level_xp 
+    
+    
+
+
+#----------------------USER STATS CHECKS------------------------------------
+async def get_user_stats(username):
+    users = database.child("users").get().val()
+    users_list = dict(users.items())
+    user_data = users_list[username]
+    user_experience, user_level, user_token, user_status = user_data["experience"], user_data["level"], user_data["tokens"], user_data["status"]
+    return user_data["experience"], user_data["level"], user_data["tokens"], user_data["status"]
+
+async def get_player_list(username,gamemode):
+    fighters = database.child("fighters").child(username).child(gamemode).order_by_child("timestamp").get().val()
+    game_data = dict(fighters.items())
+    game_fighters = list(game_data.keys())
+    game_fighters.reverse()
+
+    print(f"{username} {gamemode} fighters: {game_fighters}")
+    return game_fighters
+
+def create_fighter_list(chain_list, current_page):
+            fighters_str = ""
+            start_index = (current_page - 1) * 10
+            end_index = current_page * 10 
+
+            for i, fighter in enumerate(chain_list[start_index:end_index], start=start_index+1):
+                fighters_str += f"{i}. {fighter}\n"
+            return fighters_str
+
+# async def drawProgressBar(x, y, w, h, progress, bg="black", fg="green"):
+#     out = Image.new("RGB", (125, 25), (255, 255, 255))
+#     d = ImageDraw.Draw(out)
+
+
+#     # draw background
+#     d.ellipse((x+w, y, x+h+w, y+h), fill=bg)
+#     d.ellipse((x, y, x+h, y+h), fill=bg)
+#     d.rectangle((x+(h/2), y, x+w+(h/2), y+h), fill=bg)
+
+#     # draw progress bar
+#     w *= progress
+#     d.ellipse((x+w, y, x+h+w, y+h),fill=fg)
+#     d.ellipse((x, y, x+h, y+h),fill=fg)
+#     d.rectangle((x+(h/2), y, x+w+(h/2), y+h),fill=fg)
+#     out.save("progressbar.jpg")
+
+
+#     return d
+
+
+##################################TOKENS & USERS CHECKS#######################################################
+async def get_users_list():
+    users = database.child("users").get().val()
+    return users
+
+async def check_player_exist(username,users):
+
+    #Convert firebase users Odict response to a normal dict so we can get key value pairs
+    users_keys = dict(users.items()).keys()
+
+    # print(f"users: {users_keys}")
+    # for user in users_keys:
+    #     print(user)
+    if username in users_keys:
+        logger.info(f"{username} already registered in db")
+        return True
+    else:
+        logger.info(f"{username} not registered in db")
+        return False 
+
+async def set_new_player(username, server):
+    now = datetime.today()
+    time = now.strftime('%H:%M:%S')
+    date = now.strftime('%Y-%m-%d')
+    date_obj = datetime.strptime(date, "%Y-%m-%d")
+    time_obj = datetime.strptime(time, "%H:%M:%S")
+    
+    # Combine the date and time objects into a single datetime object
+    timestamp_obj = datetime.combine(date_obj.date(), time_obj.time())
+    
+    # Convert the timestamp datetime object into a string for storage in the database
+    timestamp = timestamp_obj.isoformat()
+    data = {"level":0, "experience":0,"tokens":5, "status":"Starter","server_created":server, "date_created":timestamp}
+    database.child("users").child(username).update(data)
+
+async def check_user_tokens(username,users):
+    #Convert firebase users Odict response to a normal dict so we can get key value pairs
+    users_data = dict(users.items())
+    
+    users_stats = users_data[username]
+    logger.info(f"{username}'s stats: {users_stats}")
+    user_tokens = users_stats["tokens"]
+    # print(f"user_tokens: {user_tokens}")
+
+    return user_tokens
+
+async def deduct_token(username):
+    user_data = database.child("users").child(username).get().val()
+    user_token = user_data["tokens"] 
+    updated_token = user_token - 1
+    data = {"tokens": updated_token}
+    database.child("users").child(username).update(data)
+    return
+   
+
+
 
 
 #----------------------------GENERAL----------------------------------
@@ -161,7 +338,7 @@ async def get_p1_from_DB(server,gamemode):
 
 async def store_p1_to_DB(server,username,gamemode,fighter):
     logger.info("Storing player 1 in DB")
-    username = str(re.sub(r"#", "-", username))
+    # username = str(re.sub(r"#", "-", username))
     data = {"username":f"{username}","Fighter":f"{fighter}", "Gamemode":f"{gamemode}"}
 
     database.child("servers").child(server).child(gamemode).child("Player 1").update(data)
@@ -194,11 +371,21 @@ async def close_db_read_status(server,gamemode):
 
 
 def store_image_to_DB(server,username,gamemode,time,date,fighter,imgURL):        #HOW DO I CREATE A NEW DATABASE WITH SQLITE3 ON PYTHON WITH TIME FORMAT
-    data = {"Time":time, "Date":date, "Fighter":f"{fighter}", "Gamemode":f"{gamemode}", "image_URL":imgURL}
-    username = re.sub(r"#", "-", username)
+    # Parse the date and time strings into datetime objects
+    date_obj = datetime.strptime(date, "%Y-%m-%d")
+    time_obj = datetime.strptime(time, "%H:%M:%S")
+    
+    # Combine the date and time objects into a single datetime object
+    timestamp_obj = datetime.combine(date_obj.date(), time_obj.time())
+    
+    # Convert the timestamp datetime object into a string for storage in the database
+    timestamp_str = timestamp_obj.isoformat()
+    data = {"Time":time, "Date":date,"Server":f"{server}", "Fighter":f"{fighter}", "Gamemode":f"{gamemode}", "image_URL":imgURL, "timestamp": timestamp_str}
+
+    # username = re.sub(r"#", "-", username)
     #logger.info(f"STORING {username}'S FIGHTER TO {server}")
 
-    database.child("servers").child(server).child(gamemode).child(username).child(fighter).set(data)
+    database.child("fighters").child(username).child(gamemode).child(fighter).update(data)
     logger.info(F"{username}---->{fighter}  DATA STORED IN DB")
     return 
 
@@ -210,7 +397,7 @@ def image(player_number,username,server,sentence):
         time = now.strftime('%H:%M:%S')
         date = now.strftime('%Y-%m-%d')
         username = str(username)
-        username = re.sub(r"#", "-", username)
+            # username = re.sub(r"#", "-", username)
 
         logger.info("IMAGE FUNCTION STARTED")
         response = openai.Image.create(
@@ -233,7 +420,8 @@ def image(player_number,username,server,sentence):
 
             # save image into firebase storage
             file1 = "quick_p1.jpg"
-            cloudfilename1 = f"{server}/{username}/{fighter}.png"
+            # cloudfilename1 = f"{server}/{username}/{fighter}.png"
+            cloudfilename1 = f"{username}/{gamemode}/{fighter}.png"
             logger.info(f"CLOUDFILENAME1:  {cloudfilename1}")
             try:
                 store_image(cloudfilename1, file1)
@@ -251,7 +439,7 @@ def image(player_number,username,server,sentence):
 
             # save image into firebase storage
             file2 = "quick_p2.jpg"
-            cloudfilename2 = f"{server}/{username}/{fighter}.png"
+            cloudfilename2 = f"{username}/{gamemode}/{fighter}.png"
             logger.info(f"CLOUDFILENAME2:  {cloudfilename2}")
             try:
                 store_image(cloudfilename2, file2)
@@ -269,7 +457,7 @@ def image(player_number,username,server,sentence):
             im = Image.open('chain_p1.jpg') 
             # save image into firebase storage
             file3 = 'chain_p1.jpg'
-            cloudfilename3 = f"{server}/{username}/{fighter}.png"
+            cloudfilename3 = f"{username}/{gamemode}/{fighter}.png"
             logger.info(f"CLOUDFILENAME3:  {cloudfilename3}")
             try:
                 store_image(cloudfilename3, file3)
@@ -287,7 +475,7 @@ def image(player_number,username,server,sentence):
             im = Image.open('chain_p2.jpg') 
             # save image into firebase storage
             file4 = "chain_p2.jpg"
-            cloudfilename4 = f"{server}/{username}/{fighter}.png"
+            cloudfilename4 = f"{username}/{gamemode}/{fighter}.png"
             logger.info(f"CLOUDFILENAME4:  {cloudfilename4}")
             try:
                 store_image(cloudfilename4, file4)
@@ -307,27 +495,38 @@ def image(player_number,username,server,sentence):
 #Firebase Store image
 def store_image(cloudfilename, files):
     global access_token
-    url = f"https://firebasestorage.googleapis.com/v0/b/dreambattlebeta.appspot.com/o/{cloudfilename}"
+    url = f"https://storage.googleapis.com/dreambattlebeta.appspot.com/o/?uploadType=multipart&name={cloudfilename}"
     headers = {
         "Content-Type": "image/png",
         "Authorization": f"Bearer {access_token}"
     }
-    with open(files, 'rb') as f:
-        response = requests.post(url, headers=headers, data=f)
+    with open(files, "rb") as f:
+        storage.child(cloudfilename).put(f)
+    # with open(files, 'rb') as f:
+    #     try:
+    #         response = requests.post(url, headers=headers, data=f)
+    #         response.raise_for_status()  # Check for HTTP errors
+    #         print("Image stored successfully")
+    #     except requests.exceptions.HTTPError as e:
+    #         print(f"HTTP error occurred while storing image: {e}")
+    #         print(response.text)
+    #     except Exception as e:
+    #         print(f"An error occurred while storing image: {e}")
     return
 
 
 #GPT3 Fight narration function
 def gpt3_fight (f1,f2):
     try:
-        fight = "Under 5 paragraphs,create an Excitingly narrated transcript of a brief engaging realistic fight to the death, between \" {} \" VS \" {} \", basing the outcome on the implied capabilities of the two opponents drawing on the specific skills and attributes of the fighters concluding with who won the fight and why:\n".format(f1, f2)
+        logger.info("Fight text started")
+        fight = "create a brief Excitingly narrated transcript of an engaging realistic fight to the death, between \" {} \" VS \" {} \", highlighting the actions of both fighters, basing the outcome on the implied capabilities of the two opponents drawing on the specific skills and attributes of the fighters concluding with who won the fight and why:\n".format(f1, f2)
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{fight}"}
             ],
             temperature=0.7,
-            max_tokens=220,
+            max_tokens=240,
             top_p=1,
             frequency_penalty=0.5,
             presence_penalty=0.8
@@ -342,14 +541,14 @@ def gpt3_fight (f1,f2):
             logger.info("FIGHT NOT FINISHED")
             fight_end = finished_fight[-500:]
             logger.info(f"UNFINISHED FIGHT ENDING  : {fight_end}")
-            complete = "Bring this fight to an end under 60 word tokens, finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" VS \" {} \".concluding with who won the fight and why \n Continue from the last word:\" {} \"- ".format(f1, f2, fight_end)
+            complete = "Bring this fight to an end under 60 word tokens, finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" VS \" {} \".concluding with who won the fight and why. \n Continue from the story from the last sentence:\" {} \"- ".format(f1, f2, fight_end)
             response2 = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{complete}"}
             ],
             temperature=0.2,
-            max_tokens=60,
+            max_tokens=90,
             top_p=1,
             frequency_penalty=0.2,
             presence_penalty=0.3
@@ -358,10 +557,9 @@ def gpt3_fight (f1,f2):
             content2 = content2[:-1]
             content2 = '.'.join(content2).strip()
             logger.info(f'ADDITION SENTENCE:{content2}')
-            # if response2.choices[0].text[2:] == '\n':
-            #     content2 = content2[:2].join
-            #     logger.info("FIXED!")
-            #     logger.info (content2)
+            content2 = re.sub('\"', " ", content2)
+
+
             full_fight = finished_fight + ' ' + content2
             return full_fight
     except Exception as e:
@@ -389,6 +587,7 @@ async def gpt3_decider(sentence, f1, f2):
 
 
 def gpt3_chain_fight1 (fighter1,fighter2):
+    logger.info("Fight text started")
     fight = f"begin a brief excitingly narrated transcript of realistic fight between '{fighter1}' AND '{fighter2}' . Both players begin with 100 Health points and take health point damage from attacks.\n"
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -411,16 +610,22 @@ def gpt3_chain_fight1 (fighter1,fighter2):
 async def gpt3_chain_fight2 (fighter1,fighter2,action1,action2,chain1):
     try:
         logger.info("2nd chain function started")
-        fight = f"""continue an excitingly narrated transcript of realistic fight between {fighter1} and {fighter2}, using the actions of both players to advance the battle. Each player should input one action per turn,which should be based on the skills and attributes of their fighter. 
-        Remember that both fighters start with 100 health points, and take damage from attacks. In your response, include the actions taken by both players, describing in detail the impact of each action on the fight. Tell the narration from a 3rd party's point of view to avoid bias &
-         Make sure to give equal attention to both fighters and their actions to ensure a fair and engaging battle. The outcome should be determined by the actions and implied capabilities of both fighters, concluding with who won the fight and why. \nPlayer1: {fighter1}\n player1's action: {action1} \nplayer2: {fighter2}\n player2's action: {action2}\n\nContinue from here:\"{chain1}\" """      
+        chain1_end = chain1.split('.')
+        chain1_end = chain1_end[-3:]
+        script = '.'.join(chain1_end)
+        print(f'SCRIPT 1 {script}')
+
+        fight = f""" finish the narrated transcript in 200 words based on the actions of both fighters.
+        \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n my transcript ends here: {script}
+        bring the fight to an end based on the actions of both players, describing in detail the impact of each action on the fight.
+        Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. continue the narration highlighting the actions of both players:"""      
         response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
         ],
-            temperature=0.5,
-            max_tokens=160,
+            temperature=0.2,
+            max_tokens=210,
             top_p=1,
             frequency_penalty=0.2,
             presence_penalty=0.3
@@ -439,51 +644,34 @@ async def gpt3_chain_fight2 (fighter1,fighter2,action1,action2,chain1):
 
 async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
     logger.info("CHAIN 3 STARTED")
-    fight = f"""finish an exciting story mode realistic fight between {fighter1} and {fighter2}, using the actions of both players to advance the battle. Remember that both fighters started with 100 health points, and take damage from attacks. 
-        In your response, include the actions taken by both players, describing in detail the impact of each action on the fight. Tell the narration from a 3rd party's point of view to avoid bias & Make sure to give equal attention to both fighters and their actions to ensure a fair and engaging battle.
-         The outcome should be determined by the actions and implied capabilities of both fighters,make sure to conclude with who won the fight and why. \nPlayer1: {fighter1}\n player1's action: {action1} \nplayer2: {fighter2}\n player2's action: {action2}\n Finish the fight:\"{chain2} """
+    chain2_end = chain2.split('.')
+    chain2_end = chain2_end[-5:]
+    script = '.'.join(chain2_end)
+    print(f'SCRIPT 2 {script}')
+    fight = f"""finish the narrated transcript in 200 words based on the actions of both fighters.
+    \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n\n my transcript ends here: {script}-
+    Bring the fight to an end solely based on the actions of both players describing in detail the impact of each action on the fight, concluding with who won the fight and why.
+    Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end: """
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
         ],
-        temperature=0.5,
-        max_tokens=160,
+        temperature=0.3,
+        max_tokens=240,
         top_p=1,
         frequency_penalty=0.2,
         presence_penalty=0.3
   )
-    chain_fight_end =  response["choices"][0]["message"]["content"]
-    if chain_fight_end[-1:] in ('.','!',"\""):
-            logger.info(f'FIGHT FINISHED: {chain_fight_end[-500:]}')
-            return response["choices"][0]["message"]["content"]
-    else:
-        logger.info("FIGHT NOT FINISHED")
-        fight_end = chain_fight_end[-500:]
-        logger.info(f"UNFINISHED FIGHT ENDING  : {fight_end}")
-        complete = "Bring this fight to an end under 60 word tokens, finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" VS \" {} \".concluding with who won the fight and why \n Continue from the last word:\" {} \"- ".format(fighter1, fighter2, fight_end)
-        response2 = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role":"system", "content": f"{complete}"}
-        ],
-        temperature=0.2,
-        max_tokens=60,
-        top_p=1,
-        frequency_penalty=0.2,
-        presence_penalty=0.3
-    )
-    content2 = response2["choices"][0]["message"]["content"].split('.')
-    content2 = content2[:-1]
-    content2 = '.'.join(content2).strip()
-    logger.info(f'CHAIN ADDITION SENTENCE:{content2}')
-
-    chain3_output = '`' +  chain_fight_end + content2 + '`' 
+    chain_fight =  response["choices"][0]["message"]["content"].split('.')
+    chain_fight = chain_fight[:-1]
+    chain3_output = '.'.join(chain_fight)
+    chain3_output = '`' + chain3_output + '`' 
     return chain3_output
 
 
 async def gpt3_fight_completed(sentence):
-        fight_winner = "from this passage, \"{}\", tell me if the fight is completed or ongoing, Option 1 \"ongoing\" or Option 2 \"completed\". if it is unclear, return Option 1 \"ongoing\":".format(sentence)
+        fight_winner = "from this passage, \"{}\", tell me if the fight is ongoing or completed. Please read the passage carefully, Option 1 \"ongoing\" or Option 2 \"completed\". if it is unclear, return Option 1 \"ongoing\":".format(sentence)
         response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -539,9 +727,9 @@ async def message_handler(user1,user2,server,p1,p2) -> str:
         except Exception as e:
             logger.info(e)
             error = str(e).lower()
-            if "server" in error:
+            if "error" in error:
                 logger.info("SERVER ERRORRRRRR")
-                return(e)
+                return "The server had an error while processing your request. Sorry about that!"
             else:
                 return "NO NSFW OR PUBLIC FIGURES ALLOWED"
 
@@ -576,9 +764,9 @@ async def chain_message_handler(user1,user2,server,p1,p2) -> str:
         except Exception as e:
             logger.info(e)
             error = str(e).lower()
-            if "server" in error:
+            if "error" in error:
                 logger.info("SERVER ERRORRRRRR")
-                return(e)
+                return "The server had an error while processing your request. Sorry about that!"
             else:
                 return "NO NSFW OR PUBLIC FIGURES ALLOWED"
         return chain_fight1
