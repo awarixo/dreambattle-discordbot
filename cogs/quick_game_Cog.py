@@ -29,14 +29,16 @@ class Quick(commands.Cog):
     async def p1(self, interaction: discord.Interaction, *, fighter:str):
         
         classic_player1 = re.sub(r'\W+', ' ',fighter)
-        print(f"CLASSIC_PLAYER1: {classic_player1}")
-        p1_username = re.sub(r'\W+', '-', str(interaction.user))
+        p1_username = re.sub(r'\W+', '-', str(interaction.user)) + f'-{interaction.user.id}'
+        print(f"CLASSIC_PLAYER1: {p1_username}")
+
         p1_guild = self.bot.get_guild(interaction.guild_id)
         p1_server = f"{p1_guild}-{p1_guild.id}"
         gamemode = "Quick game"
 
          ## CHECK IF PLAYER IS IN USERS NODE, IF NOT ADD PLAYER ##
         users_list = await chain_responses.get_users_list()
+        print(users_list)
         player_registered = await chain_responses.check_player_exist(p1_username,users_list)
         if player_registered == False:
             await chain_responses.set_new_player(p1_username, p1_server)
@@ -48,8 +50,9 @@ class Quick(commands.Cog):
         ############## IF PLAYER IS IN USERS NODE, CHECK IF USER HAS TOKEN>0, IF NOT SEND ERROR "TOKENS EXHAUSTED" #############
         # await chain_responses.update_fighters_timestamps(p1_username, gamemode)
 
-        await chain_responses.store_p1_to_DB(p1_server, p1_username, gamemode, classic_player1)
+        
         await interaction.response.send_message("WAITING FOR PLAYER 2")
+        await chain_responses.store_p1_to_DB(p1_server, p1_username, gamemode, classic_player1)
         logger.info(f'CLASSIC PLAYER 1 {p1_guild}:{p1_username}, {classic_player1}')
         
     
@@ -62,7 +65,7 @@ class Quick(commands.Cog):
         guild = self.bot.get_guild(interaction.guild_id)
         server = f"{guild}-{guild.id}"
         classic_player2 = re.sub(r'\W+', ' ',fighter)
-        p2_username = re.sub(r'\W+', '-', str(interaction.user))
+        p2_username = re.sub(r'\W+', '-', str(interaction.user)) + f'-{interaction.user.id}'
 
         read_status = await chain_responses.check_db_read_status(server,gamemode)
         print(f"READ STATUS:    {read_status}")
