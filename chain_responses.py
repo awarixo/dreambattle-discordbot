@@ -11,10 +11,16 @@ import requests
 import loggerSettings
 import concurrent.futures
 from threading import Thread
-from PIL import Image, ImageFont, ImageDraw, ImageEnhance
-
+from PIL import Image
 from datetime import datetime
 from dotenv import load_dotenv
+# from google.cloud import storage
+
+# # import google oauth2 service account module
+# from google.oauth2 import service_account
+
+# import firebase_admin
+from firebase_admin import credentials, storage, initialize_app
 
 #Environment variables
 load_dotenv(dotenv_path='/.env')
@@ -25,16 +31,17 @@ logger = loggerSettings.logging.getLogger("discord")
 
 # logging.basicConfig(filename='battlebot.log',format='%(asctime)s %(levelname)s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logger.info)
 TOKEN = os.getenv("DISCORD_TOKEN")
-openai.api_key = os.getenv("OPENAI_YUSUF_KEY")
+openai.api_key = os.getenv("OPENAI_API_KEY")
 FIREBASE_AUTH_EMAIL = os.getenv("FIREBASE_AUTH_EMAIL")
 FIREBASE_AUTH_PASSWORD = os.getenv("FIREBASE_AUTH_PASSWORD")
 FIREBASE_SERVICE_ACCOUNT = os.getenv("FIREBASE_SERVICE_ACCOUNT")
 FIREBASE_PRIVATE_KEY = os.getenv("FIREBASE_PRIVATE_KEY")
 
+client = openai.OpenAI()
 
-# #Firestore configuration
-# FIRESTORE_PRIVATE_KEY = os.getenv("FIRESTORE_PRIVATE_KEY")
-# FIRESTORE_KEY_ID = os.getenv("FIRESTORE_KEY_ID")
+#Firestore configuration
+FIRESTORE_PRIVATE_KEY = os.getenv("FIRESTORE_PRIVATE_KEY")
+FIRESTORE_KEY_ID = os.getenv("FIRESTORE_KEY_ID")
 
 # firestore_config = {
 #   "type": "service_account",
@@ -50,11 +57,11 @@ FIREBASE_PRIVATE_KEY = os.getenv("FIREBASE_PRIVATE_KEY")
 
 # }
 
-# #Firebase admin setup
-# cred = credentials.Certificate(firestore_config)
-# firebase_admin.initialize_app(cred)
-# #db = firestore.client()
-
+#Firebase admin setup
+cred = credentials.Certificate("dreambattlebeta-firebase-adminsdk-3qx63-979ca29af4.json")
+initialize_app(cred, {'storageBucket': "dreambattlebeta.appspot.com"})
+#db = firestore.client()
+bucket = storage.bucket()
 
 #Firebase database configuration
 firebaseConfig = {
@@ -73,9 +80,18 @@ firebaseConfig = {
 firebase = pyrebase.initialize_app(firebaseConfig)
 auth = firebase.auth()
 database = firebase.database()
-storage = firebase.storage()
+# storage = firebase.storage()
 user = auth.sign_in_with_email_and_password(FIREBASE_AUTH_EMAIL, FIREBASE_AUTH_PASSWORD)
 access_token = user['idToken']
+
+#-------------------  STORAGE CLIENT ----------------------------
+# cred = service_account.Credentials.from_service_account_file("dreambattlebeta-firebase-adminsdk-3qx63-979ca29af4.json")
+# # firebase_admin.initialize_app(cred, {
+# #     'storageBucket': 'dreambattlebeta.appspot.com'
+# # })
+
+# storage_client = storage.Client()
+# bucket = storage_client.bucket('dreambattlebeta.appspot.com')
 
 
 #-----------------CHAIN BATTLE--------------------------------
@@ -114,13 +130,18 @@ async def check_chain_counter(server,gamemode):
 #     return p1_played
 async def set_p1_played(p1_played,server,gamemode):
     # logger.info("Setting p1_played in DB")
-    data = {"p1_played":p1_played}
+    data = {"player_played":p1_played}
     player1_data = database.child("servers").child(server).child(gamemode).child("Player 1").update(data)
 
-async def input_action(fight_number, P1_action, server, gamemode,p1_played):
-    data = {"P1_action":P1_action, "action count":fight_number, "p1_played": p1_played}
-    player1_data = database.child("servers").child(server).child(gamemode).child("Player 1").update(data)
+async def set_p2_played(p2_played,server,gamemode):
+    data = {"player_played":p2_played}
+    player2_data = database.child("servers").child(server).child(gamemode).child("Player 2").update(data)
 
+async def input_action(player,Player_action, server, gamemode,p1_played):
+    data = {"Player_action":Player_action, "player_played": p1_played}
+    player1_data = database.child("servers").child(server).child(gamemode).child(player).update(data)
+
+    
 async def input_chain_battle(fight_output, server, gamemode):
     data = {"fight_output":fight_output}
     player1_data = database.child("servers").child(server).child(gamemode).child("Player 1").update(data)
@@ -185,7 +206,7 @@ async def set_control_p2(server,username,gamemode,fighter):
 #         print(f"Updated fighter {fighter_id} with timestamp {timestamp_str}")
 
 #----------------------LEVELING SYSTEM--------------------------------------
-async def add_player_experience(winner,loser,xp1,xp2):
+async def add_player_experience(gamemode, server, winner,loser,xp1,xp2):
     winner_data = dict(database.child("users").child(winner).get().val().items())
     loser_data = dict(database.child("users").child(loser).get().val().items())
 
@@ -201,6 +222,31 @@ async def add_player_experience(winner,loser,xp1,xp2):
     winner_updated = {"experience": winner_xp, "level": winner_level_counter}
     database.child("users").child(loser).update(loser_updated)
     database.child("users").child(winner).update(winner_updated)
+
+    if gamemode == "Chain battle":
+        try:
+            ranked_data = dict(database.child("servers").child(server).child("Rankings").get().val().items())
+
+            winner_ranked_rp = ranked_data[f"{winner}"]
+            loser_ranked_rp = ranked_data[f"{loser}"]
+            
+            if loser_ranked_rp > 25:
+                winner_ranked_rp += 4
+                loser_ranked_rp -=2
+            else:
+                winner_ranked_rp += 4
+                loser_ranked_rp +=1
+        except Exception as e:
+            print(e)
+            winner_ranked_rp = 4
+            loser_ranked_rp = 1
+
+
+        ranked_winner_update = {f"{winner}": winner_ranked_rp}
+        ranked_loser_update = {f"{loser}": loser_ranked_rp}
+        database.child("servers").child(server).child("Rankings").update(ranked_winner_update)
+        database.child("servers").child(server).child("Rankings").update(ranked_loser_update)
+        
 
 
 
@@ -219,6 +265,13 @@ def add_player_level(player_xp):
     return level_counter, player_xp, new_level_xp 
     
     
+#----------------------PLAYER RANKINGS--------------------------------------
+async def get_server_rankings(server):
+    server_rankings = dict(database.child("servers").child(server).child("Rankings").get().val().items())
+    server_rankings = dict(sorted(server_rankings.items(), key=lambda x: x[1], reverse=True))
+    server_ranking_list = list(server_rankings.items())
+    print(server_ranking_list)
+    return server_ranking_list
 
 
 #----------------------USER STATS CHECKS------------------------------------
@@ -235,7 +288,7 @@ async def get_player_list(username,gamemode):
     game_fighters = list(game_data.keys())
     game_fighters.reverse()
 
-    print(f"{username} {gamemode} fighters: {game_fighters}")
+    # print(f"{username} {gamemode} fighters: {game_fighters}")
     return game_fighters
 
 def create_fighter_list(chain_list, current_page):
@@ -300,7 +353,7 @@ async def set_new_player(username, server):
     
     # Convert the timestamp datetime object into a string for storage in the database
     timestamp = timestamp_obj.isoformat()
-    data = {"level":0, "experience":0,"tokens":5, "status":"Starter","server_created":server, "date_created":timestamp}
+    data = {"level":0, "experience":0,"tokens":15, "status":"Starter","server_created":server, "date_created":timestamp}
     database.child("users").child(username).update(data)
 
 async def check_user_tokens(username,users):
@@ -343,10 +396,12 @@ async def store_p1_to_DB(server,username,gamemode,fighter):
 
     database.child("servers").child(server).child(gamemode).child("Player 1").update(data)
     # logger.info(f"Setting Database {gamemode} read_status to true")
-    read_status = {f"{gamemode}": True}
-    database.child("servers").child(server).child("status").update(read_status)
+    Open_read_status(gamemode,server)
     return
 
+def Open_read_status(gamemode,server):
+    read_status = {f"{gamemode}": True}
+    database.child("servers").child(server).child("status").update(read_status)
 
 async def check_db_read_status(server,gamemode):
     data = database.child("servers").child(server).child("status").get()
@@ -400,13 +455,15 @@ def image(player_number,username,server,sentence):
             # username = re.sub(r"#", "-", username)
 
         logger.info("IMAGE FUNCTION STARTED")
-        response = openai.Image.create(
+        response = client.images.generate(
+                model="dall-e-3",
                 prompt=sentence,
                 n=1,
                 size="1024x1024",
+                quality="standard",
                 response_format="b64_json"
         )
-        b64 = response['data'][0]['b64_json']
+        b64 = response.data[0].b64_json
         fighter = sentence[:-48]
         logger.info(f"image ready: {fighter}")
         
@@ -420,16 +477,11 @@ def image(player_number,username,server,sentence):
 
             # save image into firebase storage
             file1 = "quick_p1.jpg"
-            # cloudfilename1 = f"{server}/{username}/{fighter}.png"
             cloudfilename1 = f"{username}/{gamemode}/{fighter}.png"
-            logger.info(f"CLOUDFILENAME1:  {cloudfilename1}")
-            try:
-                store_image(cloudfilename1, file1)
-            except Exception as e:
-                logger.error(f"CLOUDFILENAME1 PUT FAILED, {e}")
+            imgURL = store_image(cloudfilename1, file1)
             logger.info(f"CLOUDFILENAME1 STORED {cloudfilename1}")
             #get image url
-            imgURL = storage.child(cloudfilename1).get_url(None)
+            # imgURL = storage.child(cloudfilename1).get_url(None)
 
         elif player_number == 2:
             gamemode = "Quick game"
@@ -440,14 +492,10 @@ def image(player_number,username,server,sentence):
             # save image into firebase storage
             file2 = "quick_p2.jpg"
             cloudfilename2 = f"{username}/{gamemode}/{fighter}.png"
-            logger.info(f"CLOUDFILENAME2:  {cloudfilename2}")
-            try:
-                store_image(cloudfilename2, file2)
-            except Exception as e:
-                logger.error(f"CLOUDFILENAME2 PUT FAILED, {e}")
+            imgURL = store_image(cloudfilename2, file2)
             logger.info(f"CLOUDFILENAME2 STORED {cloudfilename2}")
             #get image url
-            imgURL = storage.child(cloudfilename2).get_url(None)
+            # imgURL = storage.child(cloudfilename2).get_url(None)
 
 
         elif player_number == 3:
@@ -458,14 +506,10 @@ def image(player_number,username,server,sentence):
             # save image into firebase storage
             file3 = 'chain_p1.jpg'
             cloudfilename3 = f"{username}/{gamemode}/{fighter}.png"
-            logger.info(f"CLOUDFILENAME3:  {cloudfilename3}")
-            try:
-                store_image(cloudfilename3, file3)
-            except Exception as e:
-                logger.error(f"CLOUDFILENAME3 PUT FAILED, {e}")
+            imgURL = store_image(cloudfilename3, file3)
             logger.info(f"CLOUDFILENAME3 STORED {cloudfilename3}")
             #get image url
-            imgURL = storage.child(cloudfilename3).get_url(None)
+            # imgURL = storage.child(cloudfilename3).get_url(None)
 
         
         elif player_number == 4:
@@ -476,17 +520,14 @@ def image(player_number,username,server,sentence):
             # save image into firebase storage
             file4 = "chain_p2.jpg"
             cloudfilename4 = f"{username}/{gamemode}/{fighter}.png"
-            logger.info(f"CLOUDFILENAME4:  {cloudfilename4}")
-            try:
-                store_image(cloudfilename4, file4)
-            except Exception as e:
-                logger.error(f"CLOUDFILENAME4 PUT FAILED, {e}")
+            imgURL = store_image(cloudfilename4, file4)
             logger.info(f"CLOUDFILENAME4 STORED {cloudfilename4}")
             #get image url
-            imgURL = storage.child(cloudfilename4).get_url(None)
+            #imgURL =  storage.child(cloudfilename4).get_url(None)
 
         
         store_image_to_DB(server,username,gamemode,time,date,fighter,imgURL)
+        print(f"{fighter} image stored in DB")
 
         return fighter
     except Exception as e:
@@ -494,14 +535,67 @@ def image(player_number,username,server,sentence):
 
 #Firebase Store image
 def store_image(cloudfilename, files):
-    global access_token
-    url = f"https://storage.googleapis.com/dreambattlebeta.appspot.com/o/?uploadType=multipart&name={cloudfilename}"
-    headers = {
-        "Content-Type": "image/png",
-        "Authorization": f"Bearer {access_token}"
-    }
-    with open(files, "rb") as f:
-        storage.child(cloudfilename).put(f)
+    try:
+        blob = bucket.blob(cloudfilename)
+        blob.upload_from_filename(files)
+        blob.make_public()
+
+        print("your file url", blob.public_url)
+        return blob.public_url
+    except Exception as e:
+        print(f"An error occurred while storing image: {e}")
+        print(f"Image {cloudfilename} store failed. RETRYING")
+        store_image(cloudfilename, files)
+    # global access_token
+    # storage_url = f'https://storage.googleapis.com/dreambattlebeta.appspot.com/o/?uploadType=media&name={cloudfilename}'
+
+    # # Read the image file as binary data
+    # with open(files, 'rb') as file:
+    #     image_data = file.read()
+
+    # # Set the Content-Type header for the request
+    # headers = {
+    #     'Content-Type': 'image/jpeg',
+    #     'Content-Length': str(len(image_data)),
+    #     'Authorization': f'Bearer {access_token}'
+    # }
+
+    # # Send the POST request to Firebase Storage
+    # try:
+    #     response = requests.post(f'{storage_url}', headers=headers, data=image_data)
+    #     print(f"Image {storage_url}/{cloudfilename} stored successfully")
+    # # try: ###FAILED
+    # #     # Upload the image file
+    # #     img = storage.child(cloudfilename).put(files)
+    # #     print(f"Image {cloudfilename} stored successfully")
+    # except Exception as e:
+    #     print(f"An error occurred while storing image: {e}")
+    #     print(f"Image {cloudfilename} store failed. RETRYING")
+    #     store_image(cloudfilename, files)
+              
+
+
+
+    # print(f"Image {cloudfilename} store failed. RETRYING")
+    # store_image(cloudfilename, files)
+
+    # img_thread.start() FAILED
+    # print("IMAGE THREAD STARTED")
+    # while not image_uploaded and time.time()-start_time < 6:
+    #     if img_thread.is_alive():
+    #         time.sleep(0.1)
+    #     else:
+    #         image_uploaded = True
+    # if not image_uploaded:
+        
+    
+    # print(f"access_token:   {access_token}")
+    # url = f"https://storage.googleapis.com/dreambattlebeta.appspot.com/o/?uploadType=multipart&name={cloudfilename}"
+    # headers = {
+    #     "Content-Type": "image/png",
+    #     "Authorization": f"Bearer {access_token}"
+    # }
+
     # with open(files, 'rb') as f:
     #     try:
     #         response = requests.post(url, headers=headers, data=f)
@@ -512,6 +606,9 @@ def store_image(cloudfilename, files):
     #         print(response.text)
     #     except Exception as e:
     #         print(f"An error occurred while storing image: {e}")
+    #         print(f"Image {cloudfilename} store failed. RETRYING")
+    #         store_image(cloudfilename, files)
+
     return
 
 
@@ -519,58 +616,64 @@ def store_image(cloudfilename, files):
 def gpt3_fight (f1,f2):
     try:
         logger.info("Fight text started")
-        fight = "create a brief Excitingly narrated transcript of an engaging realistic fight to the death, between \" {} \" VS \" {} \", highlighting the actions of both fighters, basing the outcome on the implied capabilities of the two opponents drawing on the specific skills and attributes of the fighters concluding with who won the fight and why:\n".format(f1, f2)
-        response = openai.ChatCompletion.create(
+        fight = "create an Exciting story of an engaging realistic fight to the death under 200 words, between \" {} \" VS \" {} \", basing the outcome on the implied capabilities of the two opponents drawing on the specific skills and attributes of the fighters, highlighting the actions of both fighters, concluding with who won the fight and why:\n".format(f1, f2)
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{fight}"}
             ],
             temperature=0.7,
-            max_tokens=240,
+            max_tokens=310,
             top_p=1,
             frequency_penalty=0.5,
             presence_penalty=0.8
     )
         logger.info(f'RESPONSE: {response}')
-        content =  response["choices"][0]["message"]["content"].split('.')
-        finished_fight = response["choices"][0]["message"]["content"]
+ 
+
+        finished_fight = response.choices[0].message.content
         if finished_fight[-1:] in ('.','!',"\""):
+            # print(f"fight finished: {finished_fight[-50:]}")
             logger.info(f'FIGHT FINISHED: {finished_fight[-500:]}')
-            return response["choices"][0]["message"]["content"]
+            return finished_fight
         else:
             logger.info("FIGHT NOT FINISHED")
+            finished_fight = finished_fight.split('.')
+            finished_fight = finished_fight[:-1]
+            finished_fight = '.'.join(finished_fight)
             fight_end = finished_fight[-500:]
-            logger.info(f"UNFINISHED FIGHT ENDING  : {fight_end}")
+            logger.info(f"joined : {finished_fight}")
             complete = "Bring this fight to an end under 60 word tokens, finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" VS \" {} \".concluding with who won the fight and why. \n Continue from the story from the last sentence:\" {} \"- ".format(f1, f2, fight_end)
-            response2 = openai.ChatCompletion.create(
+            response2 = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{complete}"}
             ],
             temperature=0.2,
-            max_tokens=90,
+            max_tokens=70,
             top_p=1,
             frequency_penalty=0.2,
             presence_penalty=0.3
         )
-            content2 = response2["choices"][0]["message"]["content"].split('.')
+            content2 = response2.choices[0].message.content.split('.')
             content2 = content2[:-1]
             content2 = '.'.join(content2).strip()
             logger.info(f'ADDITION SENTENCE:{content2}')
             content2 = re.sub('\"', " ", content2)
 
-
-            full_fight = finished_fight + ' ' + content2
-            return full_fight
+            finished_fight = finished_fight + ' ' + content2
+        return finished_fight
     except Exception as e:
         return e
 
 
 #GPT3 Fight decider function
 async def gpt3_decider(sentence, f1, f2):
-    fight_winner = "from this passage, \"{}\", tell me which option won the fight , Option 1: \"{}\" \n or Option 2: \"{}\" :".format(sentence, f1, f2)
+    control_player1 = re.sub('[^a-zA-Z ]+',' ', f1)
+    control_player2 = re.sub('[^a-zA-Z ]+',' ', f2)
+    fight_winner = "from this passage, \"{}\", tell me which option won the fight , Option 1: \"{}\" \n or Option 2: \"{}\". reply with option number :".format(sentence, control_player1, control_player2)
     logger.info(f"fight_winner:           {fight_winner}")
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight_winner}"}
@@ -588,8 +691,8 @@ async def gpt3_decider(sentence, f1, f2):
 
 def gpt3_chain_fight1 (fighter1,fighter2):
     logger.info("Fight text started")
-    fight = f"begin a brief excitingly narrated transcript of realistic fight between '{fighter1}' AND '{fighter2}' . Both players begin with 100 Health points and take health point damage from attacks.\n"
-    response = openai.ChatCompletion.create(
+    fight = f"create an Exciting story of an engaging realistic fight to the death between '{fighter1}' AND '{fighter2}' . Both players begin with 100 Health points and take health point damage from attacks.\n"
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
@@ -608,24 +711,24 @@ def gpt3_chain_fight1 (fighter1,fighter2):
 
 
 async def gpt3_chain_fight2 (fighter1,fighter2,action1,action2,chain1):
-    try:
         logger.info("2nd chain function started")
         chain1_end = chain1.split('.')
-        chain1_end = chain1_end[-3:]
+        chain1_end = chain1_end[-4:]
         script = '.'.join(chain1_end)
         print(f'SCRIPT 1 {script}')
 
-        fight = f""" finish the narrated transcript in 200 words based on the actions of both fighters.
-        \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n my transcript ends here: {script}
+        fight = f""" finish the narrated transcript under 150 words based on the actions of both fighters.
+        \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n 
         bring the fight to an end based on the actions of both players, describing in detail the impact of each action on the fight.
-        Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. continue the narration highlighting the actions of both players:"""      
-        response = openai.ChatCompletion.create(
+        Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the fight narration on the actions of both players:
+        \nmy transcript ends here: {script} -"""      
+        response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
         ],
             temperature=0.2,
-            max_tokens=210,
+            max_tokens=220,
             top_p=1,
             frequency_penalty=0.2,
             presence_penalty=0.3
@@ -637,9 +740,7 @@ async def gpt3_chain_fight2 (fighter1,fighter2,action1,action2,chain1):
         chain2_output = '.'.join(chain2_output_list)
         chain2_output = '`' + chain2_output + '`'
         return chain2_output
-    except Exception as e:
-        logger.info(e)
-        return "NO NSFW OR PUBLIC FIGURES ALLOWED"
+
 
 
 async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
@@ -648,11 +749,12 @@ async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
     chain2_end = chain2_end[-5:]
     script = '.'.join(chain2_end)
     print(f'SCRIPT 2 {script}')
-    fight = f"""finish the narrated transcript in 200 words based on the actions of both fighters.
-    \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n\n my transcript ends here: {script}-
+    fight = f"""finish the narrated transcript under 150 words based on the actions of both fighters.
+    \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n
     Bring the fight to an end solely based on the actions of both players describing in detail the impact of each action on the fight, concluding with who won the fight and why.
-    Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end: """
-    response = openai.ChatCompletion.create(
+    Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the winner on the actions of both players: 
+    \nmy transcript ends here: {script} -"""
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
@@ -672,7 +774,7 @@ async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
 
 async def gpt3_fight_completed(sentence):
         fight_winner = "from this passage, \"{}\", tell me if the fight is ongoing or completed. Please read the passage carefully, Option 1 \"ongoing\" or Option 2 \"completed\". if it is unclear, return Option 1 \"ongoing\":".format(sentence)
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight_winner}"}
@@ -685,27 +787,31 @@ async def gpt3_fight_completed(sentence):
         )
         content =  response["choices"][0]["message"]["content"].split('.')
         logger.info(content)
-        return response["choices"][0]["message"]["content"]
+        chain_check = response["choices"][0]["message"]["content"].lower()
+        return chain_check
 
 
 #function for 2 player game
 async def message_handler(user1,user2,server,p1,p2) -> str:
         
-        final1 = p1 +", 4k,highly detailed octane render, by alex ross" 
-        final2 = p2 +", 4k,highly detailed octane render, by alex ross"
+        final1 = p1 +", 4k octane render, by alex ross" 
+        final2 = p2 +", 4k octane render, by alex ross"
         server1, server2 = server,server
 
         try:
             
             logger.info("Now working on images")
             with concurrent.futures.ThreadPoolExecutor() as executor:
+                thread3 = executor.submit(gpt3_fight,p1, p2)
                 thread1 = executor.submit(image, 1,user1,server1,final1)
                 thread2 = executor.submit(image, 2,user2,server2,final2)
-                thread3 = executor.submit(gpt3_fight,p1, p2)
+                
             results = [thread1,thread2,thread3]
+            # results = [thread3]
 
-            # image1 = thread1.result()
-            # image2 = thread2.result()
+
+            image1 = thread1.result()
+            image2 = thread2.result()
             fight_description = thread3.result() 
             result_list=[]
             for f in concurrent.futures.as_completed(results):
@@ -754,6 +860,7 @@ async def chain_message_handler(user1,user2,server,p1,p2) -> str:
             
             #list of futures that completed and futures that failed
             done, not_done = concurrent.futures.wait([thread1, thread2, thread3], timeout=None, return_when=concurrent.futures.ALL_COMPLETED)
+            # done, not_done = concurrent.futures.wait([thread3], timeout=None, return_when=concurrent.futures.ALL_COMPLETED)
 
             for future in done:
                 result = future.result()
