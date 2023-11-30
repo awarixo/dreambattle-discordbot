@@ -177,7 +177,6 @@ class Chain(commands.Cog):
 
 
 
-
     @app_commands.command(name="stats", description="Player information")
     async def info(self, interaction: discord.Interaction):
 
@@ -204,9 +203,169 @@ class Chain(commands.Cog):
         embed.add_field(name="Tokens Remaining", value=f"{user_token}", inline= True)
         view = self.Myview()
 
-
         # Send embedded message back to user
         await interaction.response.send_message( embed=embed,view=view, ephemeral=True)
+        return
+    
+
+
+#--------------------------------Button class for rankings----------------------------------------------
+    class Rankview(discord.ui.View):
+        def __init__(self,separator, username, server, guild):
+            super().__init__()
+            self.value = None
+            self.page = 1
+            self.separator = separator
+            self.username = username
+            self.server = server
+            self.guild = guild
+            
+            # Update the button states based on the current page
+            self.children[0].disabled = self.page == 1 # first page button
+            self.children[1].disabled = self.page == 1 # prev page button
+
+        # def create_embed (self,data):
+        #     embed = discord.Embed(title="Example")
+        #     for item in data:
+        #         embed.add_field(name = item, value= item, inline=False)
+        #     return embed
+        
+        # async def update_message(self,data):
+        #     await self.message.edit(embed=self.create_embed(data), view = self)
+        
+
+        async def update_embed(self, interaction: discord.Interaction):
+            username = self.username
+            server = self.server
+            embed = discord.Embed(title=f"{self.guild} Chainbattle rankings", color=discord.Color.dark_teal())
+            rankings_str = ""
+            server_rankings = await chain_responses.get_server_rankings(server)
+            print(f"server_rankings {server_rankings}")
+            
+            # Retrieve top 10 from database
+            for i, fighter in enumerate(server_rankings[(self.page-1)*10:self.page*10], start=(self.page-1)*10+1):
+                ranked_points = fighter[1]
+                ranked_user = fighter[0]
+                ranked_username_list = ranked_user.split('-')
+                ranked_username_list = ranked_username_list[:-1]
+                ranked_username = '-'.join(ranked_username_list)
+                print(len(ranked_username))
+                rankings_str += f"`{i}. {ranked_username}"
+                spaces = 25 - len(ranked_username) - len(str(i))
+                while spaces > 0:
+                    rankings_str += " "
+                    spaces-=1
+                rankings_str += f"{ranked_points}rp`\n"
+            embed.add_field(name="RANKED TOP 10🔥🔥", value=rankings_str)
+
+
+            #Find user rank
+            for i, fighter in enumerate(server_rankings, start=1):
+                if fighter[0] == username:
+                    ranking_username_list = username.split('-')
+                    ranking_username_list = ranking_username_list[:-1]
+                    ranking_username = '-'.join(ranking_username_list)
+                    user_ranking_str = f"`{i}. {ranking_username}"
+                    spaces = 25 - len(ranking_username) - len(str(i))
+                    while spaces > 0:
+                        user_ranking_str += " "
+                        spaces-=1
+                    user_ranking_str += f"{fighter[1]}rp`\n"
+                    embed.add_field(name="Your Rank 🤓", value=user_ranking_str)
+
+            # Update the button states based on the current page
+            self.children[0].disabled = self.page == 1 # first page button
+            self.children[1].disabled = self.page == 1 # prev page button
+            self.children[2].disabled = self.page*10 >= len(server_rankings) # next page button
+            self.children[3].disabled = self.page*10 >= len(server_rankings) # last page button
+
+            self.message = await interaction.response.edit_message(embed=embed, view=self)
+
+
+
+        
+        
+        @discord.ui.button(label="<<")
+        async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            self.page = 1
+            await self.update_embed(interaction)
+
+        
+        @discord.ui.button(label="<")
+        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            self.page -= 1
+            await self.update_embed(interaction)
+
+        @discord.ui.button(label=">")
+        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            self.page += 1
+            await self.update_embed(interaction)
+
+
+        @discord.ui.button(label=">>")
+        async def last_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            
+            server = self.server
+            server_rankings = await chain_responses.get_server_rankings(server)
+            page_no = math.ceil(len(server_rankings)/10 )
+            self.page = page_no
+            await self.update_embed(interaction)
+
+
+
+    
+    @app_commands.command(name="rankings", description="Server Chainbattle rankings ⚔️")
+    async def rankings(self, interaction: discord.Interaction):
+        username = re.sub(r'\W+', '-', str(interaction.user)) + f'-{interaction.user.id}'
+        guild = self.bot.get_guild(interaction.guild_id)
+        server = f"{guild}-{guild.id}"
+        
+        # Retrieve top 10 from database
+        try:
+            rankings_str = ""
+            server_rankings = await chain_responses.get_server_rankings(server)
+            print(f"server_rankings {server_rankings}")
+            for i, fighter in enumerate(server_rankings[0:10], start=1):
+                ranked_points = fighter[1]
+                ranked_user = fighter[0]
+                ranked_username_list = ranked_user.split('-')
+                ranked_username_list = ranked_username_list[:-1]
+                ranked_username = '-'.join(ranked_username_list)
+                print(len(ranked_username))
+                rankings_str += f"`{i}. {ranked_username}"
+                spaces = 25 - len(ranked_username) - len(str(i))
+                while spaces > 0:
+                    rankings_str += " "
+                    spaces-=1
+                rankings_str += f"{ranked_points}rp`\n"
+        except Exception as e:
+            print(e)
+
+        #Find user rank
+        for i, fighter in enumerate(server_rankings, start=1):
+            if fighter[0] == username:
+                ranking_username_list = username.split('-')
+                ranking_username_list = ranking_username_list[:-1]
+                ranking_username = '-'.join(ranking_username_list)
+                user_ranking_str = f"`{i}. {ranking_username}"
+                spaces = 25 - len(ranking_username) - len(str(i))
+                while spaces > 0:
+                    user_ranking_str += " "
+                    spaces-=1
+                user_ranking_str += f"{fighter[1]}rp`\n"
+
+
+        # Create an embedded message with user's stats
+        embed = discord.Embed(title=f"⚔️{guild} Chainbattle rankings⚔️", color=discord.Color.dark_teal())
+        embed.add_field(name="RANKED TOP 10🔥🔥", value=rankings_str)
+        embed.add_field(name="Your Rank 🤓", value=user_ranking_str)
+# embed.set_thumbnail(url=interaction.user.avatar)
+        ranked_view = self.Rankview(separator=10, username=username, server=server, guild=guild)
+        ranked_view.data = server_rankings
+
+
+        # Send embedded message back to user
+        await interaction.response.send_message(embed=embed,view=ranked_view, ephemeral=True)
         return
 
     #1ST ROUND CREATE PLAYER 1
@@ -395,11 +554,11 @@ class Chain(commands.Cog):
                         if '2' in fight_decider:
                             logger.info(f'Player 2 won the fight')
                             await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-                            await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+                            await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
                         else:
                             logger.info(f'Player 1 won the fight')
                             await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-                            await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+                            await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
                         await chain_responses.set_chain_battle_start(server, fight_started)
 
                     #Chain battle ongoing
@@ -427,11 +586,11 @@ class Chain(commands.Cog):
                     if '2' in fight_decider:
                         logger.info(f'Player 2 won the fight')
                         await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-                        await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+                        await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
                     else:
                         logger.info(f'Player 1 won the fight')
                         await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-                        await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+                        await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
                     fight_started = False
                     await chain_responses.set_chain_battle_start(server, fight_started)
                     await chain_responses.set_chain_counter(0,server,gamemode)
@@ -535,11 +694,11 @@ class Chain(commands.Cog):
                         if '2' in fight_decider:
                             logger.info(f'Player 2 won the fight')
                             await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-                            await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+                            await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
                         else:
                             logger.info(f'Player 1 won the fight')
                             await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-                            await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+                            await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
                         await chain_responses.set_chain_battle_start(server, fight_started)
 
                     #Chain battle ongoing
@@ -567,11 +726,11 @@ class Chain(commands.Cog):
                     if '2' in fight_decider:
                         logger.info(f'Player 2 won the fight')
                         await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-                        await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+                        await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
                     else:
                         logger.info(f'Player 1 won the fight')
                         await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-                        await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+                        await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
                     fight_started = False
                     await chain_responses.set_chain_battle_start(server, fight_started)
                     await chain_responses.set_chain_counter(0,server,gamemode)
@@ -640,12 +799,12 @@ class Chain(commands.Cog):
     #                 if '2' in fight_decider:
     #                     logger.info(f'Player 2 won the fight')
     #                     await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-    #                     await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+    #                     await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
 
     #                 else:
     #                     logger.info(f'Player 1 won the fight')
     #                     await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-    #                     await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+    #                     await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
 
 
 
@@ -706,11 +865,11 @@ class Chain(commands.Cog):
     #             if '2' in fight_decider2:
     #                 logger.info(f'Player 2 won the fight')
     #                 await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-    #                 await chain_responses.add_player_experience(P2_username,P1_username,20,10)
+    #                 await chain_responses.add_player_experience(gamemode,server, P2_username,P1_username,20,10)
     #             else:
     #                 logger.info(f'Player 1 won the fight')
     #                 await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-    #                 await chain_responses.add_player_experience(P1_username,P2_username,20,10)
+    #                 await chain_responses.add_player_experience(gamemode,server, P1_username,P2_username,20,10)
 
     #             await chain_responses.set_chain_counter(0,server,gamemode)
     #             await chain_responses.set_chain_battle_start(server, fight_started)

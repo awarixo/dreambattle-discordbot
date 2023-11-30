@@ -37,6 +37,7 @@ FIREBASE_AUTH_PASSWORD = os.getenv("FIREBASE_AUTH_PASSWORD")
 FIREBASE_SERVICE_ACCOUNT = os.getenv("FIREBASE_SERVICE_ACCOUNT")
 FIREBASE_PRIVATE_KEY = os.getenv("FIREBASE_PRIVATE_KEY")
 
+client = openai.OpenAI()
 
 #Firestore configuration
 FIRESTORE_PRIVATE_KEY = os.getenv("FIRESTORE_PRIVATE_KEY")
@@ -205,7 +206,7 @@ async def set_control_p2(server,username,gamemode,fighter):
 #         print(f"Updated fighter {fighter_id} with timestamp {timestamp_str}")
 
 #----------------------LEVELING SYSTEM--------------------------------------
-async def add_player_experience(winner,loser,xp1,xp2):
+async def add_player_experience(gamemode, server, winner,loser,xp1,xp2):
     winner_data = dict(database.child("users").child(winner).get().val().items())
     loser_data = dict(database.child("users").child(loser).get().val().items())
 
@@ -221,6 +222,31 @@ async def add_player_experience(winner,loser,xp1,xp2):
     winner_updated = {"experience": winner_xp, "level": winner_level_counter}
     database.child("users").child(loser).update(loser_updated)
     database.child("users").child(winner).update(winner_updated)
+
+    if gamemode == "Chain battle":
+        try:
+            ranked_data = dict(database.child("servers").child(server).child("Rankings").get().val().items())
+
+            winner_ranked_rp = ranked_data[f"{winner}"]
+            loser_ranked_rp = ranked_data[f"{loser}"]
+            
+            if loser_ranked_rp > 25:
+                winner_ranked_rp += 4
+                loser_ranked_rp -=2
+            else:
+                winner_ranked_rp += 4
+                loser_ranked_rp +=1
+        except Exception as e:
+            print(e)
+            winner_ranked_rp = 4
+            loser_ranked_rp = 1
+
+
+        ranked_winner_update = {f"{winner}": winner_ranked_rp}
+        ranked_loser_update = {f"{loser}": loser_ranked_rp}
+        database.child("servers").child(server).child("Rankings").update(ranked_winner_update)
+        database.child("servers").child(server).child("Rankings").update(ranked_loser_update)
+        
 
 
 
@@ -239,6 +265,13 @@ def add_player_level(player_xp):
     return level_counter, player_xp, new_level_xp 
     
     
+#----------------------PLAYER RANKINGS--------------------------------------
+async def get_server_rankings(server):
+    server_rankings = dict(database.child("servers").child(server).child("Rankings").get().val().items())
+    server_rankings = dict(sorted(server_rankings.items(), key=lambda x: x[1], reverse=True))
+    server_ranking_list = list(server_rankings.items())
+    print(server_ranking_list)
+    return server_ranking_list
 
 
 #----------------------USER STATS CHECKS------------------------------------
@@ -422,13 +455,15 @@ def image(player_number,username,server,sentence):
             # username = re.sub(r"#", "-", username)
 
         logger.info("IMAGE FUNCTION STARTED")
-        response = openai.Image.create(
+        response = client.images.generate(
+                model="dall-e-3",
                 prompt=sentence,
                 n=1,
                 size="1024x1024",
+                quality="standard",
                 response_format="b64_json"
         )
-        b64 = response['data'][0]['b64_json']
+        b64 = response.data[0].b64_json
         fighter = sentence[:-48]
         logger.info(f"image ready: {fighter}")
         
@@ -492,6 +527,7 @@ def image(player_number,username,server,sentence):
 
         
         store_image_to_DB(server,username,gamemode,time,date,fighter,imgURL)
+        print(f"{fighter} image stored in DB")
 
         return fighter
     except Exception as e:
@@ -581,7 +617,7 @@ def gpt3_fight (f1,f2):
     try:
         logger.info("Fight text started")
         fight = "create an Exciting story of an engaging realistic fight to the death under 200 words, between \" {} \" VS \" {} \", basing the outcome on the implied capabilities of the two opponents drawing on the specific skills and attributes of the fighters, highlighting the actions of both fighters, concluding with who won the fight and why:\n".format(f1, f2)
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{fight}"}
@@ -595,7 +631,7 @@ def gpt3_fight (f1,f2):
         logger.info(f'RESPONSE: {response}')
  
 
-        finished_fight = response["choices"][0]["message"]["content"]
+        finished_fight = response.choices[0].message.content
         if finished_fight[-1:] in ('.','!',"\""):
             # print(f"fight finished: {finished_fight[-50:]}")
             logger.info(f'FIGHT FINISHED: {finished_fight[-500:]}')
@@ -608,7 +644,7 @@ def gpt3_fight (f1,f2):
             fight_end = finished_fight[-500:]
             logger.info(f"joined : {finished_fight}")
             complete = "Bring this fight to an end under 60 word tokens, finish this Excitingly narrated transcript of a brief fight to the death, between \" {} \" VS \" {} \".concluding with who won the fight and why. \n Continue from the story from the last sentence:\" {} \"- ".format(f1, f2, fight_end)
-            response2 = openai.ChatCompletion.create(
+            response2 = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role":"system", "content": f"{complete}"}
@@ -619,7 +655,7 @@ def gpt3_fight (f1,f2):
             frequency_penalty=0.2,
             presence_penalty=0.3
         )
-            content2 = response2["choices"][0]["message"]["content"].split('.')
+            content2 = response2.choices[0].message.content.split('.')
             content2 = content2[:-1]
             content2 = '.'.join(content2).strip()
             logger.info(f'ADDITION SENTENCE:{content2}')
@@ -637,7 +673,7 @@ async def gpt3_decider(sentence, f1, f2):
     control_player2 = re.sub('[^a-zA-Z ]+',' ', f2)
     fight_winner = "from this passage, \"{}\", tell me which option won the fight , Option 1: \"{}\" \n or Option 2: \"{}\". reply with option number :".format(sentence, control_player1, control_player2)
     logger.info(f"fight_winner:           {fight_winner}")
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight_winner}"}
@@ -656,7 +692,7 @@ async def gpt3_decider(sentence, f1, f2):
 def gpt3_chain_fight1 (fighter1,fighter2):
     logger.info("Fight text started")
     fight = f"create an Exciting story of an engaging realistic fight to the death between '{fighter1}' AND '{fighter2}' . Both players begin with 100 Health points and take health point damage from attacks.\n"
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
@@ -677,21 +713,22 @@ def gpt3_chain_fight1 (fighter1,fighter2):
 async def gpt3_chain_fight2 (fighter1,fighter2,action1,action2,chain1):
         logger.info("2nd chain function started")
         chain1_end = chain1.split('.')
-        chain1_end = chain1_end[-3:]
+        chain1_end = chain1_end[-4:]
         script = '.'.join(chain1_end)
         print(f'SCRIPT 1 {script}')
 
-        fight = f""" finish the narrated transcript in 200 words based on the actions of both fighters.
-        \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n my transcript ends here: {script}
+        fight = f""" finish the narrated transcript under 150 words based on the actions of both fighters.
+        \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n 
         bring the fight to an end based on the actions of both players, describing in detail the impact of each action on the fight.
-        Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the fight narration on the actions of both players:"""      
-        response = openai.ChatCompletion.create(
+        Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the fight narration on the actions of both players:
+        \nmy transcript ends here: {script} -"""      
+        response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
         ],
             temperature=0.2,
-            max_tokens=210,
+            max_tokens=220,
             top_p=1,
             frequency_penalty=0.2,
             presence_penalty=0.3
@@ -712,11 +749,12 @@ async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
     chain2_end = chain2_end[-5:]
     script = '.'.join(chain2_end)
     print(f'SCRIPT 2 {script}')
-    fight = f"""finish the narrated transcript in 200 words based on the actions of both fighters.
-    \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n\n my transcript ends here: {script}-
+    fight = f"""finish the narrated transcript under 150 words based on the actions of both fighters.
+    \n Fighter1: {fighter1}\n Fighter1's action: {action1} \n Fighter2: {fighter2}\n Fighter2's action: {action2}.\n
     Bring the fight to an end solely based on the actions of both players describing in detail the impact of each action on the fight, concluding with who won the fight and why.
-    Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the winner on the actions of both players: """
-    response = openai.ChatCompletion.create(
+    Avoid bias & Make sure to give equal attention to both fighters' actions to ensure a fair and engaging end. base the winner on the actions of both players: 
+    \nmy transcript ends here: {script} -"""
+    response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight}"}
@@ -736,7 +774,7 @@ async def gpt3_chain_fight3 (fighter1,fighter2,action1,action2, chain2):
 
 async def gpt3_fight_completed(sentence):
         fight_winner = "from this passage, \"{}\", tell me if the fight is ongoing or completed. Please read the passage carefully, Option 1 \"ongoing\" or Option 2 \"completed\". if it is unclear, return Option 1 \"ongoing\":".format(sentence)
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(        
         model="gpt-3.5-turbo",
         messages=[
             {"role":"system", "content": f"{fight_winner}"}
@@ -768,12 +806,12 @@ async def message_handler(user1,user2,server,p1,p2) -> str:
                 thread1 = executor.submit(image, 1,user1,server1,final1)
                 thread2 = executor.submit(image, 2,user2,server2,final2)
                 
-            #results = [thread1,thread2,thread3]
-            results = [thread3]
+            results = [thread1,thread2,thread3]
+            # results = [thread3]
 
 
-            # image1 = thread1.result()
-            # image2 = thread2.result()
+            image1 = thread1.result()
+            image2 = thread2.result()
             fight_description = thread3.result() 
             result_list=[]
             for f in concurrent.futures.as_completed(results):
@@ -822,6 +860,7 @@ async def chain_message_handler(user1,user2,server,p1,p2) -> str:
             
             #list of futures that completed and futures that failed
             done, not_done = concurrent.futures.wait([thread1, thread2, thread3], timeout=None, return_when=concurrent.futures.ALL_COMPLETED)
+            # done, not_done = concurrent.futures.wait([thread3], timeout=None, return_when=concurrent.futures.ALL_COMPLETED)
 
             for future in done:
                 result = future.result()

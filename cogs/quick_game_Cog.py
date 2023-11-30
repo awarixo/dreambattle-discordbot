@@ -137,12 +137,12 @@ class Quick(commands.Cog):
         if '2' in fight_decider:
             logger.info(f'Player 2 won the fight')
             await interaction.channel.send('**PLAYER 2 WON THE FIGHT**')
-            await chain_responses.add_player_experience(p2_username,p1_username,15,5)
+            await chain_responses.add_player_experience(gamemode,server, p2_username,p1_username,15,5)
 
         else:
             logger.info(f'Player 1 won the fight')
             await interaction.channel.send('**PLAYER 1 WON THE FIGHT**')
-            await chain_responses.add_player_experience(p1_username,p2_username,15,5)
+            await chain_responses.add_player_experience(gamemode,server, p1_username,p2_username,15,5)
 
         
         #### Remove one player from each player token
